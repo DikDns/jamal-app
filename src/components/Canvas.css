@@ -1,0 +1,143 @@
+/* =====================================================
+   Canvas Container
+   ===================================================== */
+
+.canvas-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+/* Ensure TLDraw fills the container */
+.canvas-container > .tl-container {
+  width: 100%;
+  height: 100%;
+}
+
+/* Make TLDraw grid more visible */
+.tl-grid {
+  opacity: 0.6 !important;
+}
+
+/* Background with subtle line grid pattern */
+.tl-background {
+  background-color: #fafbfc !important;
+  background-image: 
+    linear-gradient(rgba(26, 109, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(26, 109, 255, 0.08) 1px, transparent 1px) !important;
+  background-size: 20px 20px !important;
+}
+
+/* =====================================================
+   Collaboration Status Indicator
+   ===================================================== */
+
+.collab-status {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.collab-status.connected {
+  background: rgba(34, 197, 94, 0.15);
+  color: #16a34a;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.collab-status.disconnected {
+  background: rgba(245, 158, 11, 0.15);
+  color: #d97706;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.sync-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sync-indicator::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.error-indicator {
+  color: #dc2626;
+}
+
+.collab-status.has-pending {
+  background: rgba(245, 158, 11, 0.15);
+  color: #d97706;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.pending-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pending-indicator::before {
+  content: '⏳';
+  font-size: 0.8rem;
+}
+
+/* =====================================================
+   Read-Only Banner (Published Mode)
+   ===================================================== */
+
+.readonly-banner {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.9), rgba(220, 38, 38, 0.9));
+  color: white;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+  backdrop-filter: blur(8px);
+  animation: slideDown 0.3s ease-out;
+}
+
+.readonly-banner svg {
+  opacity: 0.9;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}

@@ -1,50 +1,109 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
+import { useEffect, useCallback } from 'react';
+import { onOpenUrl } from '@tauri-apps/plugin-deep-link';
+import WelcomePage from './pages/WelcomePage';
+import EditorPage from './pages/EditorPage';
+import { useAppStore } from './store/useAppStore';
+import { getDrawingById } from './services/cloudApi';
+import { generateId } from './services/fileService';
+import type { Tab } from './types';
+import './App.css';
+
+// Deep link handler component (needs to be inside Router)
+function DeepLinkHandler() {
+  const navigate = useNavigate();
+  const addTab = useAppStore((state) => state.addTab);
+  const isOnline = useAppStore((state) => state.isOnline);
+
+  // Handle deep link URL
+  const handleDeepLink = useCallback(async (urls: string[]) => {
+    for (const url of urls) {
+      console.log('[DeepLink] Received:', url);
+      
+      // Parse jamal://session/{roomId}
+      const match = url.match(/^jamal:\/\/session\/(.+)$/);
+      if (match) {
+        const roomId = match[1];
+        console.log('[DeepLink] Joining room:', roomId);
+        
+        if (!isOnline) {
+          console.warn('[DeepLink] Cannot join room while offline');
+          // TODO: Show notification
+          return;
+        }
+        
+        try {
+          // Try to fetch the drawing from the server
+          const drawing = await getDrawingById(roomId);
+          
+          // Create a new tab with the cloud drawing
+          const newTab: Tab = {
+            id: generateId(),
+            name: drawing.name || 'Shared Canvas',
+            filePath: null,
+            isDirty: false,
+            store: null, // Will be loaded by collaboration hook
+            cloudId: roomId,
+          };
+          
+          addTab(newTab);
+          navigate('/editor');
+        } catch (error) {
+          console.error('[DeepLink] Failed to join room:', error);
+          // TODO: Show error notification
+        }
+      }
+    }
+  }, [navigate, addTab, isOnline]);
+
+  // Listen for deep link events
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    
+    const setupDeepLinkListener = async () => {
+      try {
+        unlisten = await onOpenUrl(handleDeepLink);
+      } catch (error) {
+        // Deep link plugin might not be available in dev mode
+        console.log('[DeepLink] Plugin not available:', error);
+      }
+    };
+    
+    setupDeepLinkListener();
+    
+    return () => {
+      unlisten?.();
+    };
+  }, [handleDeepLink]);
+
+  return null;
+}
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+  const setOnline = useAppStore((state) => state.setOnline);
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+  // Track online/offline status
+  useEffect(() => {
+    const handleOnline = () => setOnline(true);
+    const handleOffline = () => setOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [setOnline]);
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+    <BrowserRouter>
+      <DeepLinkHandler />
+      <Routes>
+        <Route path="/" element={<WelcomePage />} />
+        <Route path="/editor" element={<EditorPage />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
 

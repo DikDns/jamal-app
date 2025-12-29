@@ -1,0 +1,168 @@
+/* =====================================================
+   Text Floating Menu Styles - Compact
+   ===================================================== */
+
+.text-floating-menu {
+    position: absolute;
+    z-index: 1000;
+    background: #ffffff;
+    border: 1.5px solid #3b82f6;
+    border-radius: 12px;
+    padding: 10px 12px;
+    min-width: 220px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+    pointer-events: auto;
+}
+
+/* Menu Row */
+.menu-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 4px 0;
+}
+
+.menu-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #1f2937;
+    min-width: 40px;
+}
+
+/* Divider */
+.menu-divider {
+    height: 1px;
+    background: #e5e7eb;
+    margin: 2px 0;
+}
+
+/* Color Grid */
+.color-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    max-width: 160px;
+}
+
+.color-swatch {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    padding: 0;
+}
+
+.color-swatch:hover {
+    transform: scale(1.15);
+}
+
+.color-swatch.selected {
+    box-shadow: 0 0 0 1.5px #ffffff, 0 0 0 3px #3b82f6;
+}
+
+.color-swatch.with-border {
+    border: 1.5px solid #d1d5db;
+}
+
+/* Size Buttons */
+.size-buttons {
+    display: flex;
+    gap: 4px;
+}
+
+.size-btn {
+    width: 28px;
+    height: 22px;
+    border-radius: 4px;
+    border: 1px solid #d1d5db;
+    background: #ffffff;
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: #374151;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.size-btn:hover {
+    border-color: #3b82f6;
+    color: #3b82f6;
+}
+
+.size-btn.selected {
+    background: #3b82f6;
+    border-color: #3b82f6;
+    color: #ffffff;
+}
+
+/* Font Buttons */
+.font-buttons {
+    display: flex;
+    gap: 4px;
+}
+
+.font-btn {
+    width: 28px;
+    height: 22px;
+    border-radius: 4px;
+    border: 1px solid #d1d5db;
+    background: #ffffff;
+    font-size: 0.65rem;
+    font-weight: 500;
+    color: #374151;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.font-btn:hover {
+    border-color: #3b82f6;
+    color: #3b82f6;
+}
+
+.font-btn.selected {
+    background: #3b82f6;
+    border-color: #3b82f6;
+    color: #ffffff;
+}
+
+/* Align Buttons */
+.align-buttons {
+    display: flex;
+    gap: 4px;
+}
+
+.align-btn {
+    width: 26px;
+    height: 22px;
+    border-radius: 4px;
+    border: 1px solid #d1d5db;
+    background: #ffffff;
+    color: #3b82f6;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.align-btn:hover {
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.05);
+}
+
+.align-btn.selected {
+    background: #3b82f6;
+    border-color: #3b82f6;
+    color: #ffffff;
+}
+
+.align-btn svg {
+    width: 12px;
+    height: 12px;
+}

@@ -1,0 +1,28 @@
+# jamal
+
+## Docs
+- [Jamal Collab WebSocket API Specification](docs/apidocs.md): 
+
+## API Docs
+- Items [Get all items](items/api/get.md): 
+- Items [Create a new item](api/items/create.md): 
+- Items [Get item by ID](api/items/getId.md): 
+- Items [Update item](api/items/update.md): 
+- Items [Delete item](api/items/delete.md): 
+- Drawings [Get all drawings](api/drawings/get.md): 
+- Drawings [Create a new drawing](api/drawings/create.md): 
+- Drawings [Get drawing by ID](api/drawings/getId.md): 
+- Drawings [Update drawing](api/drawings/update.md): 
+- Drawings [Delete drawing](drawings/api/delete.md): 
+- Websocket [join](api/websocket/join.md): 
+- Websocket [store:get](api/websocket/get.md): 
+- Websocket [store:set](api/websocket/set.md): 
+- Websocket [store:patch](api/websocket/patch.md): 
+
+## Schemas
+- [Drawing](schemas/drawing.md): 
+- [Item](schemas/item.md): 
+- [CreateItemDto](schemas/createItem.md): 
+- [UpdateItemDto](schemas/updateItem.md): 
+- [CreateDrawingDto](schemas/createDrawing.md): 
+- [UpdateDrawingDto](schemas/updateDrawing): 

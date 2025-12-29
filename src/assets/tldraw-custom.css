@@ -1,0 +1,172 @@
+/* =====================================================
+   Custom TLDraw Toolbar & Grid Styles
+   - Simplified horizontal toolbar with bundled shapes
+   - Blue outlined icons on white background
+   - Clean grid background
+   ===================================================== */
+
+/* Grid Background Styling */
+.tl-grid {
+    opacity: 0.4 !important;
+}
+
+/* Main Toolbar Container */
+.tlui-toolbar {
+    background: #ffffff !important;
+    border-radius: 14px !important;
+    border: 1.5px solid rgba(26, 109, 255, 0.12) !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06) !important;
+    padding: 4px 6px !important;
+    gap: 2px !important;
+}
+
+/* Toolbar Tool Buttons */
+.tlui-toolbar__tools button,
+.tlui-button[data-testid^="tools."] {
+    background: transparent !important;
+    border: none !important;
+    color: #1a6dff !important;
+    border-radius: 10px !important;
+    width: 38px !important;
+    height: 38px !important;
+    padding: 7px !important;
+    transition: all 0.15s ease !important;
+}
+
+.tlui-toolbar__tools button:hover,
+.tlui-button[data-testid^="tools."]:hover {
+    background: rgba(26, 109, 255, 0.08) !important;
+}
+
+/* Selected state - all possible TLDraw attributes */
+.tlui-toolbar__tools button[data-state="selected"],
+.tlui-toolbar__tools button[data-isactive="true"],
+.tlui-toolbar__tools button[aria-pressed="true"],
+.tlui-button[data-state="selected"],
+.tlui-button[data-isactive="true"],
+.tlui-button[aria-pressed="true"] {
+    background: #1a6dff !important;
+    color: #ffffff !important;
+}
+
+/* Selected state SVG icons - MUST be white */
+.tlui-toolbar__tools button[data-state="selected"] svg,
+.tlui-toolbar__tools button[data-state="selected"] svg *,
+.tlui-toolbar__tools button[data-isactive="true"] svg,
+.tlui-toolbar__tools button[data-isactive="true"] svg *,
+.tlui-toolbar__tools button[aria-pressed="true"] svg,
+.tlui-toolbar__tools button[aria-pressed="true"] svg *,
+.tlui-button[data-state="selected"] svg,
+.tlui-button[data-state="selected"] svg *,
+.tlui-button[data-isactive="true"] svg,
+.tlui-button[data-isactive="true"] svg *,
+.tlui-button[aria-pressed="true"] svg,
+.tlui-button[aria-pressed="true"] svg * {
+    color: #ffffff !important;
+    fill: #ffffff !important;
+    stroke: #ffffff !important;
+}
+
+/* Normal state icons - Blue */
+.tlui-toolbar__tools button svg,
+.tlui-button[data-testid^="tools."] svg {
+    width: 20px !important;
+    height: 20px !important;
+}
+
+/* Toolbar Dividers */
+.tlui-toolbar__divider {
+    width: 1px !important;
+    height: 24px !important;
+    background: rgba(26, 109, 255, 0.12) !important;
+    margin: 0 4px !important;
+}
+
+/* Hide extra/duplicate tools to simplify toolbar */
+/* Hide: hand (pan), highlighter, laser, frame, note, embed */
+.tlui-button[data-testid="tools.hand"],
+.tlui-button[data-testid="tools.highlight"],
+.tlui-button[data-testid="tools.laser"],
+.tlui-button[data-testid="tools.frame"],
+.tlui-button[data-testid="tools.note"],
+.tlui-button[data-testid="tools.embed"] {
+    display: none !important;
+}
+
+/* Quick Actions (Undo/Redo) */
+.tlui-quick-actions {
+    gap: 2px !important;
+}
+
+.tlui-quick-actions button {
+    background: transparent !important;
+    border: none !important;
+    color: #1a6dff !important;
+    border-radius: 8px !important;
+    width: 34px !important;
+    height: 34px !important;
+    padding: 6px !important;
+}
+
+.tlui-quick-actions button:hover {
+    background: rgba(26, 109, 255, 0.08) !important;
+}
+
+.tlui-quick-actions button:disabled {
+    opacity: 0.3 !important;
+}
+
+/* Zoom Button */
+.tlui-zoom-button,
+.tlui-minimap__button {
+    background: transparent !important;
+    border: none !important;
+    color: #1a6dff !important;
+    font-size: 0.8rem !important;
+    font-weight: 600 !important;
+    padding: 4px 8px !important;
+    border-radius: 8px !important;
+}
+
+.tlui-zoom-button:hover {
+    background: rgba(26, 109, 255, 0.08) !important;
+}
+
+/* Hide share panel */
+.tlui-share-zone {
+    display: none !important;
+}
+
+/* Primary color override */
+.tl-container {
+    --color-primary: #1a6dff !important;
+}
+
+/* =====================================================
+   Text Shape Font Override - DM Sans
+   ===================================================== */
+
+/* Override TLDraw text to use DM Sans */
+.tl-text-shape,
+.tl-text-shape *,
+.tl-text,
+.tl-text *,
+.tl-text-content,
+[data-shape-type="text"],
+[data-shape-type="text"] * {
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+}
+
+/* Text input when editing */
+.tl-text-input,
+.tl-text-input * {
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+}
+
+/* Override TLDraw font variable */
+.tl-container {
+    --tl-font-draw: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --tl-font-mono: 'DM Mono', 'SF Mono', monospace;
+    --tl-font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --tl-font-serif: 'DM Serif Display', Georgia, serif;
+}

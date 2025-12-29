@@ -1,0 +1,32 @@
+/* =====================================================
+   Editor Page Layout
+   ===================================================== */
+
+.editor-page {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+.editor-canvas-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.canvas-wrapper {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.canvas-wrapper.active {
+  opacity: 1;
+  pointer-events: auto;
+  z-index: 1;
+}
+
