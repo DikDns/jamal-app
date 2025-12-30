@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore, useRecentFiles } from '../store/useAppStore';
 import {
@@ -9,6 +9,7 @@ import {
   removeRecentFile as removeRecentFileService,
   clearRecentFiles as clearRecentFilesService,
 } from '../services/fileService';
+import { getDrawingById } from '../services/cloudApi';
 import type { Tab } from '../types';
 import './WelcomePage.css';
 
@@ -16,6 +17,11 @@ export default function WelcomePage() {
   const navigate = useNavigate();
   const recentFiles = useRecentFiles();
   const { setRecentFiles, addTab, removeRecentFile, clearRecentFiles } = useAppStore();
+  
+  const [showJoinModal, setShowJoinModal] = useState(false);
+  const [joinRoomId, setJoinRoomId] = useState('');
+  const [joinError, setJoinError] = useState('');
+  const [isJoining, setIsJoining] = useState(false);
 
   // Load recent files on mount
   useEffect(() => {
@@ -106,6 +112,53 @@ export default function WelcomePage() {
     }
   };
 
+  const handleJoinSession = async () => {
+    if (!joinRoomId.trim()) {
+      setJoinError('Please enter a Room ID');
+      return;
+    }
+
+    setIsJoining(true);
+    setJoinError('');
+
+    try {
+      // Extract room ID from various input formats
+      let roomId = joinRoomId.trim();
+      
+      // Handle full URLs like jamal://session/abc123 or https://...join/abc123
+      if (roomId.includes('session/')) {
+        roomId = roomId.split('session/').pop() || roomId;
+      } else if (roomId.includes('join/')) {
+        roomId = roomId.split('join/').pop() || roomId;
+      }
+
+      // Verify the drawing exists on the server
+      const drawing = await getDrawingById(roomId);
+      
+      // Create a new tab - the collaboration hook will sync the content
+      // We set store to null so Canvas creates a fresh store, then
+      // the useCollaboration hook fetches and loads the actual content
+      const newTab: Tab = {
+        id: generateId(),
+        name: drawing.name || 'Shared Canvas',
+        filePath: null,
+        isDirty: false,
+        store: null, // Let collaboration hook sync the content
+        cloudId: roomId,
+      };
+      
+      addTab(newTab);
+      setShowJoinModal(false);
+      setJoinRoomId('');
+      navigate('/editor');
+    } catch (error) {
+      console.error('Failed to join session:', error);
+      setJoinError(error instanceof Error ? error.message : 'Failed to join session. Check the Room ID and try again.');
+    } finally {
+      setIsJoining(false);
+    }
+  };
+
   const formatDate = (timestamp: number) => {
     const date = new Date(timestamp * 1000);
     return date.toLocaleDateString(undefined, {
@@ -158,6 +211,15 @@ export default function WelcomePage() {
               </svg>
               <span>Open File</span>
             </button>
+            <button className="action-btn join" onClick={() => setShowJoinModal(true)}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+              <span>Join Session</span>
+            </button>
           </div>
         </section>
 
@@ -204,6 +266,48 @@ export default function WelcomePage() {
           </section>
         )}
       </main>
+
+      {/* Join Session Modal */}
+      {showJoinModal && (
+        <div className="modal-overlay" onClick={() => setShowJoinModal(false)}>
+          <div className="join-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="join-modal-header">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+              <h2>Join Session</h2>
+            </div>
+            <div className="join-modal-body">
+              <p>Enter the Room ID or paste the collaboration link:</p>
+              <input
+                type="text"
+                className="join-input"
+                placeholder="Room ID or jamal://session/..."
+                value={joinRoomId}
+                onChange={(e) => setJoinRoomId(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleJoinSession()}
+                autoFocus
+              />
+              {joinError && <p className="join-error">{joinError}</p>}
+            </div>
+            <div className="join-modal-actions">
+              <button className="join-btn cancel" onClick={() => setShowJoinModal(false)}>
+                Cancel
+              </button>
+              <button 
+                className="join-btn primary" 
+                onClick={handleJoinSession}
+                disabled={isJoining}
+              >
+                {isJoining ? 'Joining...' : 'Join'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

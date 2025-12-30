@@ -59,7 +59,9 @@ export default function CollaboratorAvatars({ roomId, isConnected }: Collaborato
       return;
     }
 
-    const socket = getCollabSocket();
+    // Get socket for future presence events (currently unused but ready)
+    const _socket = getCollabSocket();
+    void _socket; // Silence unused warning - will be used for presence events
     
     // For now, we'll simulate presence with the current user
     // In a full implementation, the backend would send presence events

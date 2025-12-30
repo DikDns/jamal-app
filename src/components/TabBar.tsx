@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAppStore, useTabs, useActiveTabId } from '../store/useAppStore';
 import {
   saveDrawing,
@@ -12,12 +13,18 @@ import type { Tab } from '../types';
 import './TabBar.css';
 
 export default function TabBar() {
+  const navigate = useNavigate();
   const tabs = useTabs();
   const activeTabId = useActiveTabId();
   const { setActiveTab, removeTab, addTab, updateTab, setTabDirty } = useAppStore();
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Navigate to home/welcome page
+  const handleGoHome = () => {
+    navigate('/');
+  };
 
   const handleTabClick = (tabId: string) => {
     setActiveTab(tabId);
@@ -26,8 +33,9 @@ export default function TabBar() {
   const handleCloseTab = async (e: React.MouseEvent, tab: Tab) => {
     e.stopPropagation();
 
-    // If dirty, prompt to save
-    if (tab.isDirty) {
+    // Published canvases auto-sync, so no save prompt needed
+    // Only prompt for local (non-published) canvases that are dirty
+    if (tab.isDirty && !tab.cloudId) {
       const shouldSave = window.confirm(
         `"${tab.name}" has unsaved changes. Save before closing?`
       );
@@ -114,6 +122,21 @@ export default function TabBar() {
 
   return (
     <div className="tab-bar">
+      {/* Home Button */}
+      <button className="home-btn" onClick={handleGoHome} title="Home">
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+          <polyline points="9 22 9 12 15 12 15 22" />
+        </svg>
+      </button>
+
       <div className="tabs-container">
         {tabs.map((tab) => (
           <div

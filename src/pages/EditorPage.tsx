@@ -58,10 +58,11 @@ export default function EditorPage() {
   }, [autoSave]);
 
   // Save on beforeunload (browser/app close)
+  // Only prompt for local (non-published) canvases - published ones auto-sync
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      const hasUnsaved = tabs.some((tab) => tab.isDirty);
-      if (hasUnsaved) {
+      const hasUnsavedLocal = tabs.some((tab) => tab.isDirty && !tab.cloudId);
+      if (hasUnsavedLocal) {
         e.preventDefault();
         e.returnValue = '';
         // Attempt to auto-save

@@ -1,6 +1,6 @@
 import { useEffect, useCallback, useRef, useState } from 'react';
-import { Editor, loadSnapshot, getSnapshot, TLStoreEventInfo } from 'tldraw';
-import { getCollabSocket, initCollabSocket, CollabSocket } from '../services/collabSocket';
+import { Editor, loadSnapshot, getSnapshot, TLStoreEventInfo, TLStoreSnapshot } from 'tldraw';
+import { initCollabSocket, CollabSocket } from '../services/collabSocket';
 import { useIsOnline } from '../store/useAppStore';
 import type { WSStoreStateResponse, WSErrorResponse } from '../types';
 
@@ -119,7 +119,14 @@ export function useCollaboration({
 
   // Handle incoming store state (initial sync after join)
   const handleStoreState = useCallback((data: WSStoreStateResponse) => {
-    if (!editor || data.roomId !== roomId) return;
+    if (!editor) {
+      console.log('[Collab] Store state received but editor not ready, will retry when editor is available');
+      return;
+    }
+    if (data.roomId !== roomId) {
+      console.log('[Collab] Store state for different room:', data.roomId, 'expected:', roomId);
+      return;
+    }
     
     console.log('[Collab] Received initial store state, version:', data.version);
     
@@ -135,13 +142,33 @@ export function useCollaboration({
         // A more sophisticated merge could be implemented here
       }
       
-      // Convert server format to TLDraw snapshot format
-      const snapshot = {
-        store: data.store.records,
-        schema: editor.store.schema.serialize(),
-      };
+      // Handle different possible server response formats:
+      // Format 1: { schemaVersion, records: {...} }
+      // Format 2: records directly as the store object
+      let records: Record<string, unknown> | null = null;
       
-      loadSnapshot(editor.store, snapshot);
+      if (data.store?.records && typeof data.store.records === 'object') {
+        // Server returns { schemaVersion, records }
+        records = data.store.records as Record<string, unknown>;
+      } else if (data.store && typeof data.store === 'object' && !data.store.schemaVersion) {
+        // Server returns records directly (each key is a record ID)
+        records = data.store as Record<string, unknown>;
+      }
+      
+      console.log('[Collab] Parsed records count:', records ? Object.keys(records).length : 0);
+      
+      // Only load snapshot if we have records
+      if (records && Object.keys(records).length > 0) {
+        const snapshot: TLStoreSnapshot = {
+          store: records as TLStoreSnapshot['store'],
+          schema: editor.store.schema.serialize(),
+        };
+        
+        loadSnapshot(editor.store, snapshot);
+        console.log('[Collab] Successfully loaded snapshot');
+      } else {
+        console.log('[Collab] No records to load - canvas is empty on server');
+      }
       versionRef.current = data.version;
       setVersion(data.version);
       setError(null);
@@ -180,13 +207,24 @@ export function useCollaboration({
     
     isApplyingRemoteRef.current = true;
     try {
-      // Convert server format to TLDraw snapshot format
-      const snapshot = {
-        store: data.store.records,
-        schema: editor.store.schema.serialize(),
-      };
+      // Handle different possible server response formats
+      let records: Record<string, unknown> | null = null;
       
-      loadSnapshot(editor.store, snapshot);
+      if (data.store?.records && typeof data.store.records === 'object') {
+        records = data.store.records as Record<string, unknown>;
+      } else if (data.store && typeof data.store === 'object' && !data.store.schemaVersion) {
+        records = data.store as Record<string, unknown>;
+      }
+      
+      if (records && Object.keys(records).length > 0) {
+        const snapshot: TLStoreSnapshot = {
+          store: records as TLStoreSnapshot['store'],
+          schema: editor.store.schema.serialize(),
+        };
+        
+        loadSnapshot(editor.store, snapshot);
+      }
+      
       versionRef.current = data.version;
       setVersion(data.version);
     } catch (err) {
@@ -222,14 +260,17 @@ export function useCollaboration({
     // If not connected, save for offline replay
     if (!socketRef.current?.isConnected()) {
       console.log('[Collab] Offline - saving changes for later sync');
-      const snapshot = getSnapshot(editor.store);
+      // getSnapshot returns TLEditorSnapshot which has document.store
+      const editorSnapshot = getSnapshot(editor.store);
+      // Access the store records - TLEditorSnapshot structure is { document: { store, schema }, session }
+      const storeRecords = (editorSnapshot as any).document?.store || (editorSnapshot as any).store || {};
       saveOfflineChange({
         tabId,
         roomId,
         timestamp: Date.now(),
         snapshot: {
           schemaVersion: 1,
-          records: snapshot.store,
+          records: storeRecords,
         },
       });
       setHasPendingChanges(true);
@@ -242,11 +283,15 @@ export function useCollaboration({
     setIsSyncing(true);
     
     try {
-      // Get current snapshot
-      const snapshot = getSnapshot(editor.store);
+      // Get current snapshot - getSnapshot returns TLEditorSnapshot
+      const editorSnapshot = getSnapshot(editor.store);
+      // Access the store records - TLEditorSnapshot structure is { document: { store, schema }, session }
+      const storeRecords = (editorSnapshot as any).document?.store || (editorSnapshot as any).store || {};
+      console.log('[Collab] Sending store with records count:', Object.keys(storeRecords).length);
+      
       const storeData = {
         schemaVersion: 1,
-        records: snapshot.store as Record<string, unknown>,
+        records: storeRecords as Record<string, unknown>,
       };
       
       // Send full store update
@@ -265,9 +310,9 @@ export function useCollaboration({
     }
   }, [editor, roomId, tabId]);
 
-  // Debounced send to avoid flooding the server
+  // Debounced send to avoid flooding the server (500ms for smoother editing)
   const debouncedSend = useCallback(
-    debounce(() => sendChanges(), 300),
+    debounce(() => sendChanges(), 500),
     [sendChanges]
   );
 
@@ -288,6 +333,13 @@ export function useCollaboration({
         wasConnectedRef.current = true;
         // Join the room
         socket.join(roomId);
+        // Request store state if editor is ready, otherwise the useEffect will handle it
+        if (editor) {
+          console.log('[Collab] Editor ready, requesting store state...');
+          socket.getStore(roomId);
+        } else {
+          console.log('[Collab] Editor not ready yet, will request store when available');
+        }
       },
       onDisconnected: () => {
         console.log('[Collab] Disconnected');
@@ -297,7 +349,7 @@ export function useCollaboration({
     
     socketRef.current = socket;
     socket.connect();
-  }, [roomId, isOnline, handleStoreState, handleStoreUpdated, handleError]);
+  }, [roomId, isOnline, editor, handleStoreState, handleStoreUpdated, handleError]);
 
   // Disconnect from collaboration
   const disconnect = useCallback(() => {
@@ -340,16 +392,32 @@ export function useCollaboration({
     };
   }, [editor, roomId, isConnected, debouncedSend, sendChanges]);
 
-  // Auto-connect when roomId is set and online
+  // Auto-connect when roomId is set, online, AND editor is available
   useEffect(() => {
-    if (roomId && isOnline && !isConnected) {
+    if (roomId && isOnline && !isConnected && editor) {
       connect();
     }
     
     return () => {
       disconnect();
     };
-  }, [roomId, isOnline]);
+  }, [roomId, isOnline, editor]);
+  
+  // Re-request store if we're connected but just got an editor
+  // (handles case where socket connected before editor was ready)
+  const hasRequestedStoreRef = useRef(false);
+  useEffect(() => {
+    if (editor && isConnected && roomId && !hasRequestedStoreRef.current) {
+      console.log('[Collab] Editor now available, requesting store state...');
+      hasRequestedStoreRef.current = true;
+      socketRef.current?.getStore(roomId);
+    }
+    
+    // Reset when disconnecting
+    if (!isConnected) {
+      hasRequestedStoreRef.current = false;
+    }
+  }, [editor, isConnected, roomId]);
 
   // Handle going offline/online
   useEffect(() => {

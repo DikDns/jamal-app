@@ -17,9 +17,6 @@ import { saveDrawing } from '../services/fileService';
 import './Canvas.css';
 import TextFloatingMenu from './TextFloatingMenu';
 
-// Autosave interval for published canvases (1 second)
-const COLLAB_AUTOSAVE_INTERVAL = 1000;
-
 interface CanvasProps {
   tabId: string;
 }
@@ -113,24 +110,28 @@ export default function Canvas({ tabId }: CanvasProps) {
     editorRef.current.updateInstanceState({ isReadonly: shouldBeReadonly });
   }, [tab?.cloudId, isConnected]);
 
-  // Autosave every 1 second when published and connected
+  // Autosave for published canvases - only save when dirty (has changes)
+  // Using a longer interval (5 seconds) to reduce I/O overhead
+  const COLLAB_AUTOSAVE_INTERVAL_MS = 5000;
   useEffect(() => {
     if (!tab?.cloudId || !isConnected || !tab?.filePath) return;
     
     const interval = setInterval(async () => {
-      if (!editorRef.current || !tab?.filePath) return;
+      // Only save if there are actual changes (isDirty)
+      if (!editorRef.current || !tab?.filePath || !tab?.isDirty) return;
       
       try {
         const snapshot = getSnapshot(editorRef.current.store);
         await saveDrawing(tab.filePath, tab.name, snapshot, tab.cloudId);
         setTabDirty(tabId, false);
+        console.log('[Collab Autosave] Saved:', tab.name);
       } catch (error) {
         console.error('[Autosave] Failed:', error);
       }
-    }, COLLAB_AUTOSAVE_INTERVAL);
+    }, COLLAB_AUTOSAVE_INTERVAL_MS);
 
     return () => clearInterval(interval);
-  }, [tab?.cloudId, tab?.filePath, tab?.name, isConnected, tabId, setTabDirty]);
+  }, [tab?.cloudId, tab?.filePath, tab?.name, tab?.isDirty, isConnected, tabId, setTabDirty]);
 
   // Function to get current snapshot (exposed for saving)
   const getEditorSnapshot = useCallback(() => {

@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useActiveTab, useAppStore, useIsOnline } from '../store/useAppStore';
-import { createDrawing, getDrawingById } from '../services/cloudApi';
+import { createDrawing } from '../services/cloudApi';
 import { getTabSnapshot } from './Canvas';
 import { getCollabSocket } from '../services/collabSocket';
-import type { TLStoreSnapshot } from 'tldraw';
 import './PublishModal.css';
 
 interface PublishModalProps {
@@ -59,15 +58,21 @@ export default function PublishModal({ isOpen, onClose, onPublished }: PublishMo
 
     try {
       // Get current snapshot from the canvas
-      const snapshot = getTabSnapshot(activeTab.id) as TLStoreSnapshot | null;
-      if (!snapshot) {
+      // getTabSnapshot returns TLEditorSnapshot, not TLStoreSnapshot
+      const editorSnapshot = getTabSnapshot(activeTab.id);
+      if (!editorSnapshot) {
         throw new Error('Could not get canvas snapshot');
       }
 
+      // TLEditorSnapshot structure is { document: { store, schema }, session }
+      // Access the store records properly
+      const storeRecords = (editorSnapshot as any).document?.store || (editorSnapshot as any).store || {};
+      console.log('[Publish] Store records count:', Object.keys(storeRecords).length);
+      
       // Convert TLDraw snapshot to API format
       const storeData = {
         schemaVersion: 1,
-        records: snapshot.store as Record<string, unknown>,
+        records: storeRecords as Record<string, unknown>,
       };
 
       // Create drawing on server
