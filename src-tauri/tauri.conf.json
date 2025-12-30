@@ -35,12 +35,17 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "linux": {
+      "category": "Office"
+    }
   },
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["jamal"]
+        "schemes": [
+          "jamal"
+        ]
       }
     }
   }

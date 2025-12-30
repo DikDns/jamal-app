@@ -23,13 +23,12 @@ jobs:
           - platform: 'windows-latest'
             args: ''
             name: 'Windows'
-          # Uncomment to add more platforms:
-          # - platform: 'macos-latest'
-          #   args: '--target universal-apple-darwin'
-          #   name: 'macOS'
-          # - platform: 'ubuntu-22.04'
-          #   args: ''
-          #   name: 'Linux'
+          - platform: 'macos-latest'
+            args: '--target universal-apple-darwin'
+            name: 'macOS'
+          - platform: 'ubuntu-22.04'
+            args: ''
+            name: 'Linux'
 
     runs-on: ${{ matrix.platform }}
     
@@ -80,6 +79,9 @@ jobs:
             |----------|----------|
             | Windows (MSI) | `Jamal_x64_en-US.msi` |
             | Windows (Setup) | `Jamal_x64-setup.exe` |
+            | Linux (AppImage) | `jamal_*.AppImage` |
+            | Linux (Debian) | `jamal_*.deb` |
+            | macOS (Universal) | `Jamal.app.tar.gz` |
             
             ## Installation
             
