@@ -6,6 +6,8 @@ import type {
   WSStorePatchPayload,
   WSStoreStateResponse,
   WSErrorResponse,
+  WSPresenceUpdatePayload,
+  WSPresenceUpdatedResponse,
 } from '../types';
 
 // Production WebSocket URL - can be overridden with VITE_WS_URL env var
@@ -16,6 +18,8 @@ const ENV_API_KEY = import.meta.env.VITE_COLLAB_API_KEY || null;
 
 type StoreStateCallback = (data: WSStoreStateResponse) => void;
 type StoreUpdatedCallback = (data: WSStoreStateResponse) => void;
+type StoreConfirmedCallback = (data: { roomId: string; version: number }) => void;
+type PresenceUpdatedCallback = (data: WSPresenceUpdatedResponse) => void;
 type ErrorCallback = (error: WSErrorResponse) => void;
 type ConnectedCallback = () => void;
 type DisconnectedCallback = () => void;
@@ -24,6 +28,8 @@ interface CollabSocketOptions {
   apiKey?: string;
   onStoreState?: StoreStateCallback;
   onStoreUpdated?: StoreUpdatedCallback;
+  onStoreConfirmed?: StoreConfirmedCallback;
+  onPresenceUpdated?: PresenceUpdatedCallback;
   onError?: ErrorCallback;
   onConnected?: ConnectedCallback;
   onDisconnected?: DisconnectedCallback;
@@ -97,6 +103,15 @@ export class CollabSocket {
     this.socket.on('store:updated', (data: WSStoreStateResponse) => {
       console.log('[CollabSocket] Store updated:', data.roomId, 'version:', data.version);
       this.options.onStoreUpdated?.(data);
+    });
+
+    this.socket.on('store:confirmed', (data: { roomId: string; version: number }) => {
+      console.log('[CollabSocket] Store confirmed:', data.roomId, 'version:', data.version);
+      this.options.onStoreConfirmed?.(data);
+    });
+
+    this.socket.on('presence:updated', (data: WSPresenceUpdatedResponse) => {
+      this.options.onPresenceUpdated?.(data);
     });
 
     this.socket.on('error', (error: WSErrorResponse) => {
@@ -177,6 +192,22 @@ export class CollabSocket {
     const payload: WSStorePatchPayload = { roomId, baseVersion, changes };
     this.socket.emit('store:patch', payload);
     console.log('[CollabSocket] Sending patch, base version:', baseVersion);
+  }
+
+  // Send presence update (cursor position)
+  updatePresence(
+    roomId: string,
+    odId: string,
+    name: string,
+    color: string,
+    cursor: { x: number; y: number } | null
+  ): void {
+    if (!this.socket?.connected) {
+      return; // Silently ignore - presence is ephemeral
+    }
+
+    const payload: WSPresenceUpdatePayload = { roomId, odId, name, color, cursor };
+    this.socket.emit('presence:update', payload);
   }
 
   // Update callbacks

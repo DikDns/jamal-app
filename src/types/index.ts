@@ -101,3 +101,45 @@ export interface WSErrorResponse {
   message: string;
 }
 
+// LWW Timestamp tracking - maps shape ID to last update timestamp
+export type ShapeTimestamps = Map<string, number>;
+
+// Presence data for real-time cursor sync
+export interface PresenceData {
+  odId: string;
+  name: string;
+  color: string;
+  cursor: {
+    x: number;
+    y: number;
+  } | null;
+  lastUpdated: number;
+}
+
+// WebSocket presence payloads
+export interface WSPresenceUpdatePayload {
+  roomId: string;
+  odId: string;
+  name: string;
+  color: string;
+  cursor: {
+    x: number;
+    y: number;
+  } | null;
+}
+
+export interface WSPresenceUpdatedResponse {
+  roomId: string;
+  odId: string;
+  name: string;
+  color: string;
+  cursor: {
+    x: number;
+    y: number;
+  } | null;
+}
+
+// Store update with timestamps support
+export interface WSStoreStateWithTimestamps extends WSStoreStateResponse {
+  timestamps?: Record<string, number>;
+}

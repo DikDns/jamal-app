@@ -51,7 +51,7 @@ export default function Canvas({ tabId }: CanvasProps) {
   }, [tabId]);
 
   // Collaboration hook - only active when cloudId is set
-  const { isConnected, isSyncing, error: collabError, hasPendingChanges } = useCollaboration({
+  const { isConnected, error: collabError, hasPendingChanges } = useCollaboration({
     tabId,
     roomId: tab?.cloudId ?? null,
     editor,
@@ -86,15 +86,23 @@ export default function Canvas({ tabId }: CanvasProps) {
     // Enable grid background
     mountedEditor.updateInstanceState({ isGridMode: true });
 
+    // Debounce dirty state updates to avoid excessive re-renders
+    let dirtyTimeout: ReturnType<typeof setTimeout> | null = null;
+
     // Listen for store changes to track dirty state
     const unsubscribe = mountedEditor.store.listen(
       () => {
-        setTabDirty(tabId, true);
+        // Debounce: only update dirty state once per 500ms
+        if (dirtyTimeout) clearTimeout(dirtyTimeout);
+        dirtyTimeout = setTimeout(() => {
+          setTabDirty(tabId, true);
+        }, 500);
       },
       { source: 'user', scope: 'document' }
     );
 
     return () => {
+      if (dirtyTimeout) clearTimeout(dirtyTimeout);
       unsubscribe();
     };
   }, [tabId, setTabDirty]);
@@ -103,10 +111,10 @@ export default function Canvas({ tabId }: CanvasProps) {
   // Published + online = editable, Not published = editable
   useEffect(() => {
     if (!editorRef.current) return;
-    
+
     const isPublished = !!tab?.cloudId;
     const shouldBeReadonly = isPublished && !isConnected;
-    
+
     editorRef.current.updateInstanceState({ isReadonly: shouldBeReadonly });
   }, [tab?.cloudId, isConnected]);
 
@@ -115,11 +123,11 @@ export default function Canvas({ tabId }: CanvasProps) {
   const COLLAB_AUTOSAVE_INTERVAL_MS = 5000;
   useEffect(() => {
     if (!tab?.cloudId || !isConnected || !tab?.filePath) return;
-    
+
     const interval = setInterval(async () => {
       // Only save if there are actual changes (isDirty)
       if (!editorRef.current || !tab?.filePath || !tab?.isDirty) return;
-      
+
       try {
         const snapshot = getSnapshot(editorRef.current.store);
         await saveDrawing(tab.filePath, tab.name, snapshot, tab.cloudId);
@@ -145,10 +153,10 @@ export default function Canvas({ tabId }: CanvasProps) {
   useEffect(() => {
     const snapshotKey = `getSnapshot_${tabId}`;
     const editorKey = `getEditor_${tabId}`;
-    
+
     (window as any)[snapshotKey] = getEditorSnapshot;
     (window as any)[editorKey] = () => editorRef.current;
-    
+
     return () => {
       delete (window as any)[snapshotKey];
       delete (window as any)[editorKey];
@@ -167,18 +175,17 @@ export default function Canvas({ tabId }: CanvasProps) {
           <span>Offline — View Only</span>
         </div>
       )}
-      
-      {/* Collaboration status indicator */}
+
+      {/* Collaboration status indicator - errors and offline notifications only */}
       {tab?.cloudId && (
         <div className={`collab-status ${isConnected ? 'connected' : 'disconnected'} ${hasPendingChanges ? 'has-pending' : ''}`}>
-          {isSyncing && <span className="sync-indicator">Syncing...</span>}
-          {!isSyncing && hasPendingChanges && !isConnected && (
+          {hasPendingChanges && !isConnected && (
             <span className="pending-indicator">Offline changes pending</span>
           )}
           {collabError && !hasPendingChanges && <span className="error-indicator">{collabError}</span>}
         </div>
       )}
-      
+
       <Tldraw
         store={store as TLStore}
         onMount={handleMount}
