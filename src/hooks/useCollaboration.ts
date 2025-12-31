@@ -137,8 +137,15 @@ export function useCollaboration({
   const batchThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSyncingRef = useRef(false);
 
-  // Track the version we're currently sending to detect conflicts
-  const pendingSendVersionRef = useRef<number | null>(null);
+  // Track if we are currently sending a batch (Outbox Pattern)
+  const isSendingRef = useRef(false);
+
+  // Track the batch currently in flight (to restore if send fails)
+  const inflightBatchRef = useRef<{
+    put: Record<string, unknown>[];
+    update: Array<{ id: string; after: Record<string, unknown> }>;
+    remove: Array<{ id: string }>;
+  } | null>(null);
 
   // Presence state
   const clientIdRef = useRef(generateClientId());
@@ -321,7 +328,19 @@ export function useCollaboration({
       const remoteTimestamp = now - 10; // Remote is slightly older so local wins ties
 
       // Only process records that are actually different
+      // Skip user-specific records (camera, instance, pointer)
+      const shouldApply = (id: string) => {
+        if (id.startsWith('camera:')) return false;
+        if (id.startsWith('instance:')) return false;
+        if (id.startsWith('pointer:')) return false;
+        if (id.startsWith('instance_page_state:')) return false;
+        return true;
+      };
+
       for (const [id, remoteRecord] of Object.entries(remoteRecords)) {
+        // Skip user-specific records
+        if (!shouldApply(id)) continue;
+
         // Skip if we just sent this record (echo prevention)
         if (recentlySentRecordsRef.current.has(id)) {
           continue;
@@ -348,6 +367,9 @@ export function useCollaboration({
       // Handle deletions - check if any local records are missing from remote
       const localRecords = getStoreRecords();
       for (const id of Object.keys(localRecords)) {
+        // Skip user-specific records
+        if (!shouldApply(id)) continue;
+
         if (!remoteRecords[id] && localTimestampsRef.current[id] < remoteTimestamp) {
           // Remote deleted this record
           try {
@@ -403,17 +425,30 @@ export function useCollaboration({
     console.error('[Collab] WebSocket error:', err);
 
     if (err.code === 'VERSION_CONFLICT') {
-      console.log('[Collab] Version conflict, initiating recovery...');
+      console.warn('[Collab] Version conflict - will retry with new version');
+      // Soft retry:
+      // 1. Restore inflight batch to pending (prepend to keep order roughly, or just merge)
+      // Since inflight was older, we put it back. 
+      // Note: LWW handles order, so exact array order isn't critical for different records, 
+      // but important for same record mutations. Ideally we should prepend.
 
-      // Store current local changes for merge after re-fetch
-      pendingLocalChangesRef.current = getStoreRecords();
-      isRecoveringFromConflictRef.current = true;
-
-      // Re-fetch latest state
-      const socket = socketRef.current;
-      if (socket && roomId) {
-        socket.getStore(roomId);
+      const inflight = inflightBatchRef.current;
+      if (inflight) {
+        pendingBatchRef.current = {
+          put: [...inflight.put, ...pendingBatchRef.current.put],
+          update: [...inflight.update, ...pendingBatchRef.current.update],
+          remove: [...inflight.remove, ...pendingBatchRef.current.remove],
+        };
+        inflightBatchRef.current = null;
       }
+
+      // 2. Unlock sender so we can try again
+      isSendingRef.current = false;
+
+      // 3. Trigger retry after a short delay to allow store:updated to be processed
+      setTimeout(() => sendBatch(), 50);
+
+      return;
     } else if (err.code === 'UNAUTHENTICATED') {
       setError('Authentication failed');
       setIsConnected(false);
@@ -423,6 +458,7 @@ export function useCollaboration({
 
     // Always reset syncing state on error to avoid hang
     isSyncingRef.current = false;
+    isSendingRef.current = false; // Safety unlock
     setIsSyncing(false);
     if (syncTimeoutRef.current) {
       clearTimeout(syncTimeoutRef.current);
@@ -437,9 +473,15 @@ export function useCollaboration({
     versionRef.current = data.version;
     setVersion(data.version);
 
-    // Clear pending send version
-    if (pendingSendVersionRef.current !== null && data.version >= pendingSendVersionRef.current) {
-      pendingSendVersionRef.current = null;
+    // Success! Clear inflight batch
+    inflightBatchRef.current = null;
+
+    // Unlock sender
+    isSendingRef.current = false;
+
+    // If pending changes accumulated while inflight, send them now
+    if (hasChanges(pendingBatchRef.current)) {
+      sendBatch();
     }
 
     if (syncTimeoutRef.current) {
@@ -455,8 +497,16 @@ export function useCollaboration({
     const batch = pendingBatchRef.current;
     if (!hasChanges(batch)) return;
 
-    // For debounced approach, we don't need version tracking
-    // because we only send after user stops making changes
+    // Outbox Pattern: Enforce sequential sending
+    // If we're already sending, wait. The confirmation or error will trigger next send.
+    if (isSendingRef.current) return;
+
+    // Lock the sender
+    isSendingRef.current = true;
+
+    // Move pending to inflight
+    inflightBatchRef.current = batch;
+    pendingBatchRef.current = { put: [], update: [], remove: [] };
 
     try {
       const changes = {
@@ -467,20 +517,52 @@ export function useCollaboration({
 
       socketRef.current.patchStore(roomId, versionRef.current, changes);
 
-      // Optimistically increment version to prevent conflicts if another send happens
-      // before server confirmation arrives
-      versionRef.current += 1;
-      setVersion(versionRef.current);
+      // Set safety timeout - if no confirmation/error in 5s, reset lock and retry
+      if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
 
-      // Update last synced records
+      syncTimeoutRef.current = setTimeout(() => {
+        console.warn('[Collab] Sync timeout - resetting send lock');
+
+        // Restore inflight batch for retry
+        const inflight = inflightBatchRef.current;
+        if (inflight) {
+          pendingBatchRef.current = {
+            put: [...inflight.put, ...pendingBatchRef.current.put],
+            update: [...inflight.update, ...pendingBatchRef.current.update],
+            remove: [...inflight.remove, ...pendingBatchRef.current.remove],
+          };
+          inflightBatchRef.current = null;
+        }
+
+        console.log('[Collab] UNLOCK: Sync timeout - releasing sender lock');
+        isSendingRef.current = false;
+        isSyncingRef.current = false;
+        setIsSyncing(false);
+
+        // Schedule retry
+        setTimeout(() => sendBatch(), 100);
+      }, 5000);
+
+      // DO NOT increment version optimistically.
+      // Wait for server confirmation or updated event.
+
+      // Update last synced records for echo prevention
       const currentRecords = getStoreRecords();
       lastSyncedRecordsRef.current = currentRecords;
 
-      // Clear batch
-      pendingBatchRef.current = { put: [], update: [], remove: [] };
     } catch (err) {
       console.error('[Collab] Failed to send batch:', err);
-      pendingSendVersionRef.current = null;
+      // Restore on synchronous error
+      const inflight = inflightBatchRef.current;
+      if (inflight) {
+        pendingBatchRef.current = {
+          put: [...inflight.put, ...pendingBatchRef.current.put],
+          update: [...inflight.update, ...pendingBatchRef.current.update],
+          remove: [...inflight.remove, ...pendingBatchRef.current.remove],
+        };
+        inflightBatchRef.current = null;
+      }
+      isSendingRef.current = false;
     }
   }, [editor, roomId, getStoreRecords]);
 
@@ -495,22 +577,42 @@ export function useCollaboration({
     const changedIds = new Set<string>();
 
     // Process changes from the event
+    // Filter out user-specific records that shouldn't sync (camera, instance, pointer)
+    const shouldSync = (id: string) => {
+      // Camera records control viewport - each user has their own view
+      if (id.startsWith('camera:')) return false;
+      // Instance records are user-specific state
+      if (id.startsWith('instance:')) return false;
+      // Pointer records are ephemeral cursor positions (handled by presence)
+      if (id.startsWith('pointer:')) return false;
+      // Instance page state is user-specific
+      if (id.startsWith('instance_page_state:')) return false;
+      return true;
+    };
+
+    let addedCount = 0, updatedCount = 0, removedCount = 0;
     for (const [id, change] of Object.entries(event.changes.added)) {
+      if (!shouldSync(id)) continue;
       localTimestampsRef.current[id] = now;
       batch.put.push(change as unknown as Record<string, unknown>);
       changedIds.add(id);
+      addedCount++;
     }
 
     for (const [id, change] of Object.entries(event.changes.updated)) {
+      if (!shouldSync(id)) continue;
       localTimestampsRef.current[id] = now;
       batch.update.push({ id, after: change[1] as unknown as Record<string, unknown> });
       changedIds.add(id);
+      updatedCount++;
     }
 
     for (const id of Object.keys(event.changes.removed)) {
+      if (!shouldSync(id)) continue;
       delete localTimestampsRef.current[id];
       batch.remove.push({ id });
       changedIds.add(id);
+      removedCount++;
     }
 
     // Add to recently sent set and clear after 1 second
@@ -583,6 +685,16 @@ export function useCollaboration({
         setIsConnected(true);
         setError(null);
         wasConnectedRef.current = true;
+
+        // RESET SYNC STATE on connection/reconnection
+        // This prevents "stuck locks" if the previous connection died while sending
+        isSendingRef.current = false;
+        inflightBatchRef.current = null;
+        if (syncTimeoutRef.current) {
+          clearTimeout(syncTimeoutRef.current);
+          syncTimeoutRef.current = null;
+        }
+
         socket.join(roomId);
         // Request store only if we don't have it yet to avoid redundant loads
         if (editor && !hasRequestedStoreRef.current) {
@@ -623,7 +735,6 @@ export function useCollaboration({
       (event) => {
         if (isApplyingRemoteRef.current) return;
         if (event.source !== 'user') return;
-
         queueChange(event);
       },
       { source: 'user', scope: 'document' }
