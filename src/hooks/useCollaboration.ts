@@ -5,8 +5,8 @@ import { useIsOnline } from '../store/useAppStore';
 import { mergeWithLWW, hasChanges, type RecordMap, type TimestampMap } from '../utils/lwwMerge';
 import type { WSStoreStateResponse, WSErrorResponse, WSPresenceUpdatedResponse, PresenceData } from '../types';
 
-// Constants for batching - throttled approach for instant feedback
-const BATCH_THROTTLE_MS = 30; // Send immediately, then throttle for 30ms
+// Constants for batching - debounced approach for smooth dragging
+const BATCH_DEBOUNCE_MS = 30; // Send after 30ms of no changes (end of drag)
 const PRESENCE_THROTTLE_MS = 50; // Throttle cursor updates
 
 interface UseCollaborationOptions {
@@ -448,21 +448,15 @@ export function useCollaboration({
     }
   }, [roomId]);
 
-  // Send batched changes
+  // Send batched changes - non-blocking for smooth performance
   const sendBatch = useCallback(() => {
     if (!editor || !roomId || !socketRef.current?.isConnected()) return;
 
     const batch = pendingBatchRef.current;
     if (!hasChanges(batch)) return;
 
-    // Allow sending if not currently syncing, OR if batch is getting large (force send)
-    const batchSize = batch.put.length + batch.update.length + batch.remove.length;
-    const shouldForceSend = batchSize > 20; // Force send if more than 20 changes queued
-
-    if (isSyncingRef.current && !shouldForceSend) return;
-
-    isSyncingRef.current = true;
-    setIsSyncing(true);
+    // For debounced approach, we don't need version tracking
+    // because we only send after user stops making changes
 
     try {
       const changes = {
@@ -473,8 +467,10 @@ export function useCollaboration({
 
       socketRef.current.patchStore(roomId, versionRef.current, changes);
 
-      // Clear pending version when we get confirmation
-      // No timeout needed - conflicts are handled gracefully
+      // Optimistically increment version to prevent conflicts if another send happens
+      // before server confirmation arrives
+      versionRef.current += 1;
+      setVersion(versionRef.current);
 
       // Update last synced records
       const currentRecords = getStoreRecords();
@@ -523,19 +519,20 @@ export function useCollaboration({
       changedIds.forEach(id => recentlySentRecordsRef.current.delete(id));
     }, 1000);
 
-    // THROTTLED BATCHING: Send immediately if not throttled, otherwise schedule
-    if (!batchThrottleRef.current && socketRef.current?.isConnected()) {
-      // Send immediately on first change
-      sendBatch();
+    // DEBOUNCED BATCHING: Send after 30ms of no changes (end of drag)
+    // This eliminates mid-drag blocking - changes accumulate locally
+    // and only sync once the user pauses/stops
+    if (socketRef.current?.isConnected()) {
+      // Clear existing debounce timer
+      if (batchThrottleRef.current) {
+        clearTimeout(batchThrottleRef.current);
+      }
 
-      // Set throttle - prevent sending for next 30ms
+      // Schedule send after debounce period
       batchThrottleRef.current = setTimeout(() => {
         batchThrottleRef.current = null;
-        // If there are more changes queued, send them
-        if (hasChanges(pendingBatchRef.current)) {
-          sendBatch();
-        }
-      }, BATCH_THROTTLE_MS);
+        sendBatch();
+      }, BATCH_DEBOUNCE_MS);
     }
 
     // If not connected, save for offline replay

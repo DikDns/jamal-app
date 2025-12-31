@@ -3,6 +3,7 @@ import { useEffect, useCallback } from 'react';
 import { onOpenUrl } from '@tauri-apps/plugin-deep-link';
 import WelcomePage from './pages/WelcomePage';
 import EditorPage from './pages/EditorPage';
+import NotFoundPage from './pages/NotFoundPage';
 import { useAppStore } from './store/useAppStore';
 import { getDrawingById } from './services/cloudApi';
 import { generateId } from './services/fileService';
@@ -19,23 +20,23 @@ function DeepLinkHandler() {
   const handleDeepLink = useCallback(async (urls: string[]) => {
     for (const url of urls) {
       console.log('[DeepLink] Received:', url);
-      
+
       // Parse jamal://session/{roomId}
       const match = url.match(/^jamal:\/\/session\/(.+)$/);
       if (match) {
         const roomId = match[1];
         console.log('[DeepLink] Joining room:', roomId);
-        
+
         if (!isOnline) {
           console.warn('[DeepLink] Cannot join room while offline');
           // TODO: Show notification
           return;
         }
-        
+
         try {
           // Try to fetch the drawing from the server
           const drawing = await getDrawingById(roomId);
-          
+
           // Create a new tab with the cloud drawing
           const newTab: Tab = {
             id: generateId(),
@@ -45,7 +46,7 @@ function DeepLinkHandler() {
             store: null, // Will be loaded by collaboration hook
             cloudId: roomId,
           };
-          
+
           addTab(newTab);
           navigate('/editor');
         } catch (error) {
@@ -59,7 +60,7 @@ function DeepLinkHandler() {
   // Listen for deep link events
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    
+
     const setupDeepLinkListener = async () => {
       try {
         unlisten = await onOpenUrl(handleDeepLink);
@@ -68,9 +69,9 @@ function DeepLinkHandler() {
         console.log('[DeepLink] Plugin not available:', error);
       }
     };
-    
+
     setupDeepLinkListener();
-    
+
     return () => {
       unlisten?.();
     };
@@ -102,6 +103,7 @@ function App() {
       <Routes>
         <Route path="/" element={<WelcomePage />} />
         <Route path="/editor" element={<EditorPage />} />
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </BrowserRouter>
   );

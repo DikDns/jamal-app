@@ -1,0 +1,57 @@
+.not-found-page {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: linear-gradient(135deg, #0B5CD5 0%, #094CA8 100%);
+    font-family: 'Outfit', sans-serif;
+}
+
+.not-found-content {
+    text-align: center;
+    color: white;
+    padding: 2rem;
+}
+
+.not-found-logo {
+    width: 80px;
+    height: 80px;
+    margin-bottom: 1.5rem;
+    filter: brightness(10);
+    /* Make white version visible on dark background */
+}
+
+.not-found-content h1 {
+    font-size: 8rem;
+    font-weight: 700;
+    margin: 0;
+    line-height: 1;
+    text-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.not-found-content p {
+    font-size: 1.5rem;
+    margin: 1rem 0 2rem;
+    opacity: 0.9;
+}
+
+.back-button {
+    background: white;
+    color: #094CA8;
+    border: none;
+    padding: 0.875rem 2rem;
+    font-size: 1rem;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.back-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+}
+
+.back-button:active {
+    transform: translateY(0);
+}
