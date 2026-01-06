@@ -182,16 +182,17 @@ export class CollabSocket {
   patchStore(
     roomId: string,
     baseVersion: number,
-    changes: WSStorePatchPayload['changes']
+    changes: WSStorePatchPayload['changes'],
+    updateId?: string
   ): void {
     if (!this.socket?.connected) {
       console.warn('[CollabSocket] Cannot patch store: not connected');
       return;
     }
 
-    const payload: WSStorePatchPayload = { roomId, baseVersion, changes };
+    const payload: WSStorePatchPayload = { roomId, baseVersion, changes, updateId };
     this.socket.emit('store:patch', payload);
-    console.log('[CollabSocket] Sending patch, base version:', baseVersion);
+    console.log('[CollabSocket] Sending patch, base version:', baseVersion, 'updateId:', updateId);
   }
 
   // Send presence update (cursor position)

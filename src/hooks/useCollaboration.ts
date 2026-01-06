@@ -2,7 +2,7 @@ import { useEffect, useCallback, useRef, useState } from 'react';
 import { Editor, loadSnapshot, getSnapshot, TLStoreEventInfo, TLStoreSnapshot } from 'tldraw';
 import { initCollabSocket, CollabSocket } from '../services/collabSocket';
 import { useIsOnline } from '../store/useAppStore';
-import { mergeWithLWW, hasChanges, type RecordMap, type TimestampMap } from '../utils/lwwMerge';
+import { mergeWithLWW, hasChanges, createTimestamp, compareTimestamps, type RecordMap, type TimestampMap, type LogicalTimestamp } from '../utils/lwwMerge';
 import type { WSStoreStateResponse, WSErrorResponse, WSPresenceUpdatedResponse, PresenceData } from '../types';
 
 // Constants for batching - debounced approach for smooth dragging
@@ -20,6 +20,7 @@ interface UseCollaborationOptions {
 interface UseCollaborationReturn {
   isConnected: boolean;
   isSyncing: boolean;
+  isResolvingConflict: boolean; // New: indicates conflict resolution in progress
   version: number;
   error: string | null;
   hasPendingChanges: boolean;
@@ -158,9 +159,17 @@ export function useCollaboration({
   // Track recently sent record IDs to prevent echo updates
   const recentlySentRecordsRef = useRef<Set<string>>(new Set());
 
+  // Update ID tracking for reliable echo prevention (like Figma)
+  const currentUpdateIdRef = useRef<string | null>(null);
+  const pendingUpdateIdsRef = useRef<Set<string>>(new Set());
+
   // Conflict recovery state
   const isRecoveringFromConflictRef = useRef(false);
+  const [isResolvingConflict, setIsResolvingConflict] = useState(false);
   const pendingLocalChangesRef = useRef<RecordMap | null>(null);
+
+  // Exponential backoff for conflict retries
+  const conflictRetryCountRef = useRef(0);
 
   // Check for offline changes on mount
   useEffect(() => {
@@ -212,24 +221,27 @@ export function useCollaboration({
       // Handle conflict recovery with LWW merge
       if (isRecoveringFromConflictRef.current && pendingLocalChangesRef.current) {
         console.log('[Collab] Applying LWW merge for conflict recovery');
+        setIsResolvingConflict(true);
         const serverTimestamps: TimestampMap = {};
         // Server records get current time as timestamp (they're authoritative)
-        const now = Date.now();
         for (const id of Object.keys(records || {})) {
-          serverTimestamps[id] = now - 1; // Slightly older so local wins ties
+          serverTimestamps[id] = createTimestamp('server');
         }
 
         const { records: mergedRecords, timestamps: mergedTimestamps } = mergeWithLWW(
           pendingLocalChangesRef.current,
           localTimestampsRef.current,
           records || {},
-          serverTimestamps
+          serverTimestamps,
+          clientIdRef.current
         );
 
         records = mergedRecords;
         localTimestampsRef.current = mergedTimestamps;
         pendingLocalChangesRef.current = null;
         isRecoveringFromConflictRef.current = false;
+        setIsResolvingConflict(false);
+        conflictRetryCountRef.current = 0; // Reset retry count on success
       } else if (offlineChange) {
         // Merge offline changes
         console.log('[Collab] Merging offline changes with server state');
@@ -237,16 +249,16 @@ export function useCollaboration({
         const offlineTimestamps = offlineChange.timestamps || {};
 
         const serverTimestamps: TimestampMap = {};
-        const now = Date.now();
         for (const id of Object.keys(records || {})) {
-          serverTimestamps[id] = now - 1;
+          serverTimestamps[id] = createTimestamp('server');
         }
 
         const { records: mergedRecords, timestamps: mergedTimestamps } = mergeWithLWW(
           offlineRecords,
-          offlineTimestamps,
+          offlineTimestamps as TimestampMap,
           records || {},
-          serverTimestamps
+          serverTimestamps,
+          clientIdRef.current
         );
 
         records = mergedRecords;
@@ -291,11 +303,31 @@ export function useCollaboration({
   const handleStoreUpdated = useCallback((data: WSStoreStateResponse) => {
     if (!editor || data.roomId !== roomId) return;
 
-    // Fix: If this is our own update echoed back, it's a confirmation
+    // IMPROVED: Check updateId for definitive echo prevention (like Figma)
+    // If this update has our updateId, it's definitely our own echoed back
+    if (data.updateId && pendingUpdateIdsRef.current.has(data.updateId)) {
+      console.log('[Collab] Received own update echo, updateId:', data.updateId);
+      pendingUpdateIdsRef.current.delete(data.updateId);
+      isSyncingRef.current = false;
+      setIsSyncing(false);
+      // Reset conflict resolution state on successful echo
+      setIsResolvingConflict(false);
+      conflictRetryCountRef.current = 0;
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+        syncTimeoutRef.current = null;
+      }
+      return;
+    }
+
+    // Fallback: If this is our own update echoed back (by version), it's a confirmation
     if (data.version === versionRef.current) {
       console.log('[Collab] Received own update confirmation, version:', data.version);
       isSyncingRef.current = false;
       setIsSyncing(false);
+      // Reset conflict resolution state on successful confirmation
+      setIsResolvingConflict(false);
+      conflictRetryCountRef.current = 0;
       if (syncTimeoutRef.current) {
         clearTimeout(syncTimeoutRef.current);
         syncTimeoutRef.current = null;
@@ -324,8 +356,7 @@ export function useCollaboration({
       if (!remoteRecords) return;
 
       // PERFORMANCE: Apply incremental updates instead of full snapshot
-      const now = Date.now();
-      const remoteTimestamp = now - 10; // Remote is slightly older so local wins ties
+      const remoteTs = createTimestamp('remote');
 
       // Only process records that are actually different
       // Skip user-specific records (camera, instance, pointer)
@@ -346,17 +377,18 @@ export function useCollaboration({
           continue;
         }
 
-        const localTimestamp = localTimestampsRef.current[id] || 0;
+        const localTs = localTimestampsRef.current[id];
+        const defaultLocalTs: LogicalTimestamp = { time: 0, clientId: clientIdRef.current };
 
-        // Only apply if remote is newer (LWW)
-        if (remoteTimestamp > localTimestamp) {
+        // Only apply if remote is newer (LWW) - compare using logical timestamps
+        if (compareTimestamps(remoteTs, localTs || defaultLocalTs) > 0) {
           // Use tldraw's put API for incremental updates (much faster than loadSnapshot)
           try {
             // Wrap in mergeRemoteChanges to prevent triggering local listener
             editor.store.mergeRemoteChanges(() => {
               editor.store.put([remoteRecord as any]);
             });
-            localTimestampsRef.current[id] = remoteTimestamp;
+            localTimestampsRef.current[id] = remoteTs;
           } catch (err) {
             // Record might be invalid, skip it
             console.warn('[Collab] Failed to apply record:', id, err);
@@ -370,7 +402,8 @@ export function useCollaboration({
         // Skip user-specific records
         if (!shouldApply(id)) continue;
 
-        if (!remoteRecords[id] && localTimestampsRef.current[id] < remoteTimestamp) {
+        const localTs = localTimestampsRef.current[id];
+        if (!remoteRecords[id] && localTs && compareTimestamps(remoteTs, localTs) > 0) {
           // Remote deleted this record
           try {
             editor.store.remove([id as any]);
@@ -425,13 +458,12 @@ export function useCollaboration({
     console.error('[Collab] WebSocket error:', err);
 
     if (err.code === 'VERSION_CONFLICT') {
-      console.warn('[Collab] Version conflict - will retry with new version');
-      // Soft retry:
-      // 1. Restore inflight batch to pending (prepend to keep order roughly, or just merge)
-      // Since inflight was older, we put it back. 
-      // Note: LWW handles order, so exact array order isn't critical for different records, 
-      // but important for same record mutations. Ideally we should prepend.
+      console.warn('[Collab] Version conflict - will retry with exponential backoff');
 
+      // Show conflict resolution status in UI
+      setIsResolvingConflict(true);
+
+      // 1. Restore inflight batch to pending
       const inflight = inflightBatchRef.current;
       if (inflight) {
         pendingBatchRef.current = {
@@ -445,8 +477,16 @@ export function useCollaboration({
       // 2. Unlock sender so we can try again
       isSendingRef.current = false;
 
-      // 3. Trigger retry after a short delay to allow store:updated to be processed
-      setTimeout(() => sendBatch(), 50);
+      // 3. Apply exponential backoff for retries (50ms, 100ms, 200ms, 400ms, 800ms, 1600ms, max 2000ms)
+      const backoffMs = Math.min(50 * Math.pow(2, conflictRetryCountRef.current), 2000);
+      conflictRetryCountRef.current++;
+
+      console.log(`[Collab] Retrying in ${backoffMs}ms (attempt ${conflictRetryCountRef.current})`);
+
+      // 4. Trigger retry after backoff delay
+      setTimeout(() => {
+        sendBatch();
+      }, backoffMs);
 
       return;
     } else if (err.code === 'UNAUTHENTICATED') {
@@ -479,6 +519,10 @@ export function useCollaboration({
     // Unlock sender
     isSendingRef.current = false;
 
+    // Reset conflict resolution state on success
+    setIsResolvingConflict(false);
+    conflictRetryCountRef.current = 0;
+
     // If pending changes accumulated while inflight, send them now
     if (hasChanges(pendingBatchRef.current)) {
       sendBatch();
@@ -508,6 +552,11 @@ export function useCollaboration({
     inflightBatchRef.current = batch;
     pendingBatchRef.current = { put: [], update: [], remove: [] };
 
+    // Generate unique update ID for echo prevention (like Figma)
+    const updateId = `${clientIdRef.current}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+    currentUpdateIdRef.current = updateId;
+    pendingUpdateIdsRef.current.add(updateId);
+
     try {
       const changes = {
         put: batch.put as any[],
@@ -515,7 +564,7 @@ export function useCollaboration({
         remove: batch.remove,
       };
 
-      socketRef.current.patchStore(roomId, versionRef.current, changes);
+      socketRef.current.patchStore(roomId, versionRef.current, changes, updateId);
 
       // Set safety timeout - if no confirmation/error in 5s, reset lock and retry
       if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
@@ -570,7 +619,7 @@ export function useCollaboration({
   const queueChange = useCallback((event: TLStoreEventInfo) => {
     if (!editor || !roomId) return;
 
-    const now = Date.now();
+    const localTs = createTimestamp(clientIdRef.current);
     const batch = pendingBatchRef.current;
 
     // Track all changed record IDs to prevent echo
@@ -593,7 +642,7 @@ export function useCollaboration({
     let addedCount = 0, updatedCount = 0, removedCount = 0;
     for (const [id, change] of Object.entries(event.changes.added)) {
       if (!shouldSync(id)) continue;
-      localTimestampsRef.current[id] = now;
+      localTimestampsRef.current[id] = localTs;
       batch.put.push(change as unknown as Record<string, unknown>);
       changedIds.add(id);
       addedCount++;
@@ -601,7 +650,7 @@ export function useCollaboration({
 
     for (const [id, change] of Object.entries(event.changes.updated)) {
       if (!shouldSync(id)) continue;
-      localTimestampsRef.current[id] = now;
+      localTimestampsRef.current[id] = localTs;
       batch.update.push({ id, after: change[1] as unknown as Record<string, unknown> });
       changedIds.add(id);
       updatedCount++;
@@ -643,9 +692,9 @@ export function useCollaboration({
       saveOfflineChange({
         tabId,
         roomId,
-        timestamp: now,
+        timestamp: Date.now(),
         snapshot: { schemaVersion: 1, records: storeRecords },
-        timestamps: localTimestampsRef.current,
+        timestamps: localTimestampsRef.current as any, // Offline saves use serialized format
       });
       setHasPendingChanges(true);
     }
@@ -818,6 +867,7 @@ export function useCollaboration({
   return {
     isConnected,
     isSyncing,
+    isResolvingConflict,
     version,
     error,
     hasPendingChanges,

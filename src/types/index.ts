@@ -80,6 +80,7 @@ export interface WSStoreSetPayload {
 export interface WSStorePatchPayload {
   roomId: string;
   baseVersion: number;
+  updateId?: string; // Unique ID for echo prevention
   changes: {
     put?: Array<{ id: string; typeName: string;[key: string]: unknown }>;
     update?: Array<{ id: string; after: Record<string, unknown> }>;
@@ -90,6 +91,7 @@ export interface WSStorePatchPayload {
 export interface WSStoreStateResponse {
   roomId: string;
   version: number;
+  updateId?: string; // Echoed back for confirmation
   store: {
     schemaVersion: number;
     records: Record<string, unknown>;

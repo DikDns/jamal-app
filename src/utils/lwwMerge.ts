@@ -1,9 +1,9 @@
 /**
  * Last-Writer-Wins (LWW) Merge Utility
  * 
- * Implements conflict resolution by comparing timestamps.
- * When two versions of the same record exist, the one with
- * the higher (more recent) timestamp wins.
+ * Implements conflict resolution using logical timestamps (Lamport-style).
+ * When two versions of the same record exist, the one with the higher
+ * timestamp wins. Ties are broken deterministically using client ID.
  */
 
 export interface RecordWithId {
@@ -12,7 +12,49 @@ export interface RecordWithId {
 }
 
 export type RecordMap = Record<string, RecordWithId>;
-export type TimestampMap = Record<string, number>;
+
+/**
+ * Logical timestamp with client ID for deterministic ordering.
+ * This handles clock drift between clients.
+ */
+export interface LogicalTimestamp {
+    time: number;
+    clientId: string;
+}
+
+export type TimestampMap = Record<string, LogicalTimestamp>;
+
+// Legacy format support (just numbers)
+export type LegacyTimestampMap = Record<string, number>;
+
+/**
+ * Compare two logical timestamps.
+ * Returns positive if a > b, negative if a < b, 0 if equal.
+ */
+export function compareTimestamps(a: LogicalTimestamp, b: LogicalTimestamp): number {
+    if (a.time !== b.time) {
+        return a.time - b.time;
+    }
+    // Deterministic tie-break using client ID
+    return a.clientId.localeCompare(b.clientId);
+}
+
+/**
+ * Convert legacy timestamp (number) to LogicalTimestamp.
+ */
+export function toLogicalTimestamp(ts: number | LogicalTimestamp, clientId?: string): LogicalTimestamp {
+    if (typeof ts === 'object' && 'time' in ts) {
+        return ts;
+    }
+    return { time: ts, clientId: clientId || 'unknown' };
+}
+
+/**
+ * Create a new logical timestamp for local changes.
+ */
+export function createTimestamp(clientId: string): LogicalTimestamp {
+    return { time: Date.now(), clientId };
+}
 
 /**
  * Merge two sets of records using Last-Writer-Wins strategy.
@@ -21,13 +63,15 @@ export type TimestampMap = Record<string, number>;
  * @param localTimestamps - Timestamps for local records
  * @param remoteRecords - Remote record map from server
  * @param remoteTimestamps - Timestamps for remote records (optional, defaults to current time)
+ * @param localClientId - Client ID for tie-breaking
  * @returns Merged records and updated timestamps
  */
 export function mergeWithLWW(
     localRecords: RecordMap,
-    localTimestamps: TimestampMap,
+    localTimestamps: TimestampMap | LegacyTimestampMap,
     remoteRecords: RecordMap,
-    remoteTimestamps?: TimestampMap
+    remoteTimestamps?: TimestampMap | LegacyTimestampMap,
+    localClientId: string = 'local'
 ): { records: RecordMap; timestamps: TimestampMap } {
     const now = Date.now();
     const mergedRecords: RecordMap = {};
@@ -42,13 +86,19 @@ export function mergeWithLWW(
     for (const id of allIds) {
         const localRecord = localRecords[id];
         const remoteRecord = remoteRecords[id];
-        const localTs = localTimestamps[id] || 0;
-        const remoteTs = remoteTimestamps?.[id] || now;
+
+        const rawLocalTs = localTimestamps[id];
+        const rawRemoteTs = remoteTimestamps?.[id];
+
+        const localTs = rawLocalTs
+            ? toLogicalTimestamp(rawLocalTs as number | LogicalTimestamp, localClientId)
+            : { time: 0, clientId: localClientId };
+        const remoteTs = rawRemoteTs
+            ? toLogicalTimestamp(rawRemoteTs as number | LogicalTimestamp, 'remote')
+            : { time: now, clientId: 'remote' };
 
         if (localRecord && !remoteRecord) {
             // Only exists locally - keep local (it's a local add or remote delete)
-            // If remote deleted it, remote should have a higher timestamp for deletion
-            // For simplicity, keep local additions
             mergedRecords[id] = localRecord;
             mergedTimestamps[id] = localTs;
         } else if (!localRecord && remoteRecord) {
@@ -57,7 +107,7 @@ export function mergeWithLWW(
             mergedTimestamps[id] = remoteTs;
         } else if (localRecord && remoteRecord) {
             // Exists in both - LWW: higher timestamp wins
-            if (localTs >= remoteTs) {
+            if (compareTimestamps(localTs, remoteTs) >= 0) {
                 // Local wins (or tie goes to local for user experience)
                 mergedRecords[id] = localRecord;
                 mergedTimestamps[id] = localTs;
@@ -120,3 +170,4 @@ export function hasChanges(changes: {
 }): boolean {
     return changes.put.length > 0 || changes.update.length > 0 || changes.remove.length > 0;
 }
+
